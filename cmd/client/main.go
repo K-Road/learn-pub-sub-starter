@@ -35,6 +35,34 @@ func main() {
 	fmt.Printf("Queue %v declared and bound!\n", q.Name)
 
 	fmt.Println(q)
+
+	gameState := gamelogic.NewGameState(user)
+
+	for {
+		input := gamelogic.GetInput()
+		if len(input) == 0 {
+			continue
+		}
+
+		switch input[0] {
+		case "spawn":
+			fmt.Println("spawn")
+		case "move":
+			fmt.Println("move")
+		case "status":
+			gameState.CommandStatus()
+		case "help":
+			fmt.Println("help")
+		case "spam":
+			fmt.Println("spam")
+		case "quit":
+			gamelogic.PrintQuit()
+			return
+		default:
+			fmt.Printf("Invalid input: %s", input[0])
+		}
+	}
+
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
 	<-signalChan
