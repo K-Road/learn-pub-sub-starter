@@ -26,6 +26,18 @@ func main() {
 	}
 	//defer publishCh.Close()
 
+	_, q, err := pubsub.DeclareAndBind(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		pubsub.SimpleQueueDurable)
+	if err != nil {
+		log.Fatalf("failing to subscribe to pause: %v", err)
+	}
+
+	fmt.Printf("Queue %v declared and bound!\n", q.Name)
+
 	gamelogic.PrintServerHelp()
 	for {
 		input := gamelogic.GetInput()
@@ -71,6 +83,6 @@ func main() {
 		// signalChan := make(chan os.Signal, 1)
 		// signal.Notify(signalChan, os.Interrupt)
 		// <-signalChan
-		fmt.Printf("Shutting down\n")
+		//fmt.Printf("Shutting down\n")
 	}
 }
