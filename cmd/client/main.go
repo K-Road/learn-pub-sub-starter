@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -30,18 +31,6 @@ func main() {
 		log.Fatalf("failed to get user: %v", err)
 	}
 
-	// ch, q, err := pubsub.DeclareAndBind(
-	// 	conn,
-	// 	routing.ExchangePerilDirect,
-	// 	routing.PauseKey+"."+user,
-	// 	routing.PauseKey,
-	// 	pubsub.SimpleQueueTransient)
-	// if err != nil {
-	// 	log.Fatalf("failing to subscribe to pause: %v", err)
-	// }
-
-	// fmt.Printf("Queue %v declared and bound!\n", q.Name)
-
 	gameState := gamelogic.NewGameState(user)
 
 	err = pubsub.SubscribeJSON(
@@ -62,10 +51,22 @@ func main() {
 		routing.ArmyMovesPrefix+"."+gameState.GetUsername(),
 		routing.ArmyMovesPrefix+".*",
 		pubsub.SimpleQueueTransient,
-		handlerMove(gameState),
+		handlerMove(gameState, publishCh),
 	)
 	if err != nil {
-		log.Fatalf("failing to subscribe to army move: %v", err)
+		log.Fatalf("failing to subscribe to army moves: %v", err)
+	}
+
+	err = pubsub.SubscribeJSON(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.WarRecognitionsPrefix,
+		routing.WarRecognitionsPrefix+".*",
+		pubsub.SimpleQueueDurable,
+		handlerWar(gameState, publishCh),
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe to war declarations: %v", err)
 	}
 
 	for {
@@ -111,4 +112,17 @@ func main() {
 			fmt.Printf("Invalid input: %s", input[0])
 		}
 	}
+}
+
+func publishGameLog(publishCh *amqp.Channel, username, msg string) error {
+	return pubsub.PublishGob(
+		publishCh,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug+"."+username,
+		routing.GameLog{
+			Username:    username,
+			CurrentTime: time.Now(),
+			Message:     msg,
+		},
+	)
 }
