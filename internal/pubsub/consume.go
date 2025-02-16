@@ -1,6 +1,8 @@
 package pubsub
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -23,26 +25,59 @@ const (
 )
 
 func SubscribeJSON[T any](conn *amqp.Connection, exchange, queueName, key string, simpleQueueType SimpleQueueType, handler func(T) Acktype) error {
-	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
+	return subscribe[T](
+		conn,
+		exchange,
+		queueName,
+		key,
+		simpleQueueType,
+		handler,
+		func(data []byte) (T, error) {
+			var target T
+			err := json.Unmarshal(data, &target)
+			return target, err
+		},
+	)
+}
+
+func SubscribeGob[T any](conn *amqp.Connection, exchange, queueName, key string, simpleQueueType SimpleQueueType, handler func(T) Acktype) error {
+	return subscribe[T](
+		conn,
+		exchange,
+		queueName,
+		key,
+		simpleQueueType,
+		handler,
+		func(data []byte) (T, error) {
+			buf := bytes.NewReader(data)
+			dec := gob.NewDecoder(buf)
+			var target T
+			err := dec.Decode(&target)
+			return target, err
+		},
+	)
+}
+
+func subscribe[T any](
+	conn *amqp.Connection,
+	exchange, queueName, key string,
+	simpleQueueType SimpleQueueType,
+	handler func(T) Acktype,
+	unmarshaller func([]byte) (T, error),
+) error {
+	ch, q, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
 	if err != nil {
-		return fmt.Errorf("failed to bind: %w", err)
+		return fmt.Errorf("could not declare and bind queue - %s: %v", queueName, err)
 	}
-
-	//delivery channel
-	delch, err := ch.Consume(queueName, "", false, false, false, false, nil)
+	ch.Qos(10, 0, false)
+	//msg queue
+	msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create del channel: %w", err)
+		return fmt.Errorf("failed to consume messages: %v", err)
 	}
-
-	unmarshaller := func(data []byte) (T, error) {
-		var target T
-		err := json.Unmarshal(data, &target)
-		return target, err
-	}
-
 	go func() {
 		defer ch.Close()
-		for msg := range delch {
+		for msg := range msgs {
 			target, err := unmarshaller(msg.Body)
 			if err != nil {
 				fmt.Printf("failed to unmarshal msg: %v", err)
@@ -51,13 +86,10 @@ func SubscribeJSON[T any](conn *amqp.Connection, exchange, queueName, key string
 			switch handler(target) {
 			case Ack:
 				msg.Ack(false)
-				//fmt.Println("Ack")
 			case NackDiscard:
 				msg.Nack(false, false)
-				//fmt.Println("NackDiscard")
 			case NackRequeue:
 				msg.Nack(false, true)
-				//fmt.Println("NackRequeue")
 			}
 		}
 	}()
